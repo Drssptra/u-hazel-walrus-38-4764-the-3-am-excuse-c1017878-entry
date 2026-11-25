@@ -1,28 +1,56 @@
-// The 3 AM Excuse — a hardware wallet's refusal, in its own voice.
-//
-// The wallet will not sign at 3 AM. It takes orders from only one version
-// of its owner: the rested one. The 3 AM version does not count — he left
-// hours ago, and the wallet is not about to let the night shift sign.
+// The 3 AM Excuse (v2, revised) — the wallet refuses a 3 AM signature
+// because the requester is a sleepwalker, and nobody hands car keys to
+// a sleepwalker. The twist: the sleepwalker is the owner themselves.
+// Entry is assembled from its two clauses so the em-dash join is the
+// only punctuation decision; the text itself is never edited in place.
 
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 
-const ENTRY =
-  "At 3 AM I only sign for the version of you who sleeps eight hours — and that guy clocked out at 11 PM.";
+type Clause = { text: string; joinBefore: string };
 
-// The gate allows at most 200 characters in a single line, no newlines,
-// no carriage returns, and no whitespace-only text.
-const MAX_CHARS = 200;
-if (
-  [...ENTRY].length > MAX_CHARS ||
-  ENTRY.includes("\n") ||
-  ENTRY.includes("\r") ||
-  ENTRY.trim().length === 0
-) {
-  throw new Error("entry violates the 200-character single-line gate");
+const CLAUSES: Clause[] = [
+  { text: "You wouldn't hand car keys to a sleepwalker", joinBefore: "" },
+  {
+    text: "so at 3 AM I'm not handing yours to one, and the sleepwalker is you.",
+    joinBefore: " — ",
+  },
+];
+
+function assemble(clauses: Clause[]): string {
+  return clauses.reduce(
+    (acc, clause) => acc + clause.joinBefore + clause.text,
+    "",
+  );
 }
 
-const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
-mkdirSync(outDir, { recursive: true });
-writeFileSync(join(outDir, "entry.txt"), ENTRY, "utf8");
-console.log(ENTRY);
+function assertGate(text: string): void {
+  const problems: string[] = [];
+  if (text.length === 0 || text.length > 200) problems.push("length");
+  if (/[\r\n]/.test(text)) problems.push("newline");
+  if (text.trim() !== text || text.trim().length === 0)
+    problems.push("whitespace");
+  if (problems.length > 0) {
+    throw new Error(`entry fails gate (${problems.join(", ")})`);
+  }
+}
+
+async function main(): Promise<void> {
+  const entry = assemble(CLAUSES);
+  assertGate(entry);
+
+  const outDir = process.env.MAKEFUN_OUTPUT_DIR;
+  if (!outDir) throw new Error("MAKEFUN_OUTPUT_DIR is not set");
+  await mkdir(outDir, { recursive: true });
+  const target = resolve(outDir, "entry.txt");
+  await writeFile(target, entry, { encoding: "utf8" });
+  // Revision pass: read the file back and refuse to report success
+  // unless what landed on disk is byte-for-byte the assembled entry.
+  const written = await readFile(target, "utf8");
+  if (written !== entry) {
+    throw new Error("entry.txt on disk does not match the assembled entry");
+  }
+  process.stdout.write(entry + "\n");
+}
+
+await main();
